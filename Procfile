@@ -1,1 +1,1 @@
-web: gunicorn tradingbot/bot:app
+web: gunicorn bot:file
