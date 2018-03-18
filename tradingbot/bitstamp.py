@@ -7,6 +7,8 @@ import datetime
 import logging
 import threading
 import time
+import datetime
+import calendar
 import requests
 import os.path
 dir = os.path.dirname(os.path.abspath(__file__)) + "/"
@@ -39,7 +41,7 @@ class Bitstamp(object):
             found = False
             while not found:
                 try:
-                    response = requests.get('https://www.bitstamp.net/api/v2/ticker/' + str(coin) + 'USD',
+                    response = requests.get(self.BASE_URL + 'ticker/' + str(coin) + 'USD',
                                             headers={'User-Agent': 'Mozilla/5.0'}).text
                     response = json.loads(response)
                     max_bid_price_bitstamp[str(coin)] = response['bid']
@@ -49,6 +51,16 @@ class Bitstamp(object):
                     pass
         return max_bid_price_bitstamp, price_bitstamp
 
+    def max_bid_amount(self, coin):
+        response = requests.get(self.BASE_URL + 'order_book/' + str(coin) + 'USD')
+        print(response)
+        response = json.loads(response.text)['bids']
+        print(response)
+        MaxBidAmount = response[0][1]
+        for data in response:
+            if data[1] > MaxBidAmount:
+                MaxBidAmount = data[1]
+        return MaxBidAmount
     # def _init_logger(self):
     #     self.logger.setLevel(logging.INFO)
     #     self.handler.setLevel(logging.INFO)
@@ -69,17 +81,20 @@ class Bitstamp(object):
             })
             url = self.BASE_URL + params['side'] + "/" + params['coin'] + 'USD/'
             r = requests.post(url, data=params)
-            response = r.json()
+            response = json.loads(r.text)
             #self.logger.info(self._format_log(response, "INFO"))
             return response
         else:
             return "KEY AND SECRET NEEDED FOR BETTING"
 
-    def get_balance(self):
-        url = "https://www.bitstamp.net/api/balance/"
+    def get_balance(self, coin):
         params = {}
         if self.key and self.secret:
-            nonce = str(int(time.time() * 1e6))
+            # timestamp = System.currentTimeMillis() / 1000
+
+            #nonce = datetime.datetime.utcnow()
+            nonce = str(int(time.time()) * 1000000)
+            print(nonce)
             message = nonce + self.client_id + self.key
             signature = hmac.new(
                 self.secret.encode('utf-8'), msg=message.encode('utf-8'), digestmod=hashlib.sha256)
@@ -87,18 +102,18 @@ class Bitstamp(object):
             params.update({
                 'key': self.key, 'signature': signature, 'nonce': nonce
             })
-            r = requests.post(url, data=params)
-            response = r.json()
+            url = self.BASE_URL + 'balance/' + coin + 'usd/'
+            print(url)
+            r = requests.post(url=url, data=params)
+            print(r.text)
+            response = json.loads(r.text)
             # self.logger.info(self._format_log(response, "INFO"))
-            if response.get("error", "") != "":
-                print("Error while requesting {}".format(response['error']))
-            elif isinstance(response, dict):
-                if response.get("btc_available", "") != "":
-                    self.BTC_BALANCE = response['btc_available']
-                if response.get("eth_available", "") != "":
-                    self.ETH_BALANCE = response['eth_available']
-                if response.get('ltc_available', "") != "":
-                    self.LTC_BALANCE = response['ltc_available']
+            print(response)
             return response
         else:
             return "KEY AND SECRET NEEDED FOR BETTING"
+
+
+if __name__=="__main__":
+    b = Bitstamp()
+    b.get_balance('btc')
