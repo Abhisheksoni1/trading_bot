@@ -10,9 +10,17 @@ import smtplib
 import datetime
 import csv
 import time
-
+from settings import *
 
 CURRENCIES = ['BTC', 'LTC', 'ETH', 'BCH']
+
+EMAIL_HEADING = ('coin', 'date', 'min_ask_price_ice', 'max_bid_price_bitstamp', 'coin_amount', 'fund_buy_usd',
+                 'fund_sell_usd', 'variance')
+
+FILE_HEADING = ('coin', 'date', 'min_ask_price_ice', 'max_bid_price_bitstamp', 'coin_amount', 'fund_buy_usd',
+                'fund_sell_usd', 'variance', 'currency_pair_id', 'price_bitstamp', 'min_ask_price_usd', 'variance',
+                'max_bid_amount', 'coin_amount', 'response_buy', 'fund_buy_usd', 'ice_order_id', 'ice_transaction_id',
+                'response_sell', 'fund_sell_usd', 'bitstamp_order_id')
 
 
 def currency_exchange_rate():
@@ -36,20 +44,19 @@ def createHTMLtable(table_heading, heading, data):
     # Append Table Data
     for row in data:
         text = text + '<tr>'
-        for y in row:
-            text = text + '<td>' + str(y) + '</td>'
+        for h in heading:
+            text = text + '<td>' + str(row[h]) + '</td>'
         text = text + '</tr>'
     htmltable = htmltable + text + '</table>'
     return htmltable
 
 
-def sendEmail(email_sub, email_body_text, email_body, email_text_end, email_to, email_cc, attachments=[]):
-    # print 'in function'
+def sendEmail(email_sub, email_body_text, email_body, email_text_end, attachments=[]):
     msg = MIMEMultipart()
     msg['Subject'] = email_sub
-    msg['From'] = '30ankitbansal@gmail.com'
-    msg['To'] = ','.join(email_to)
-    msg['Cc'] = ','.join(email_cc)
+    msg['From'] = EMAIL_FROM
+    msg['To'] = ','.join(EMAIL_TO)
+    msg['Cc'] = ','.join(EMAIL_CC)
 
     body = MIMEText(email_body_text)
     msg.attach(body)
@@ -70,11 +77,11 @@ def sendEmail(email_sub, email_body_text, email_body, email_text_end, email_to, 
 
     s = smtplib.SMTP('smtp.gmail.com')
     s.starttls()
-    s.login('30ankitbansal@gmail.com', '@nkitone97')
+    s.login(EMAIL_FROM, EMAIL_PASSWORD)
 
-    FROM = '30ankitbansal@gmail.com'
-    TO = email_to
-    CC = email_cc
+    FROM = EMAIL_FROM
+    TO = EMAIL_TO
+    CC = EMAIL_CC
     s.sendmail(FROM, TO + CC, msg.as_string())
     s.quit()
 
@@ -82,92 +89,103 @@ def sendEmail(email_sub, email_body_text, email_body, email_text_end, email_to, 
 def variance(val1, val2):
     val1 = float(val1)
     val2 = float(val2)
-    mean = (val1 + val2)/2
-    val1_sqr = (val1 - mean)**2
-    val2_sqr = (val2 - mean)**2
+    mean = (val1 + val2) / 2
+    val1_sqr = (val1 - mean) ** 2
+    val2_sqr = (val2 - mean) ** 2
     variance = val1_sqr + val2_sqr
     return variance
 
 
+def strategy(coin, coin_data, bitstamp, ice):
+    error_msg = ''
+    coin_data['variance'] = variance(coin_data['min_ask_price_usd'], coin_data['max_bid_price_bitstamp'])
+    coin_data['date'] = datetime.datetime.now()
+    if coin_data['variance'] > -2:
+        wallet_Amount = float(bitstamp.get_balance(coin_data['coin']))
+
+        if wallet_Amount * float(coin_data['price_bitstamp']) > 30:
+            MaxBidAmount = float(bitstamp.max_bid_amount(coin_data['coin']))
+            coin_data['max_bid_amount'] = MaxBidAmount
+
+            if MaxBidAmount > wallet_Amount:
+                CoinAmount = wallet_Amount
+            else:
+                CoinAmount = MaxBidAmount
+            coin_data['coin_amount'] = CoinAmount
+            response_buy = ice.place_order(amount=CoinAmount, price=coin_data['min_ask_price_ice'], type='buy',
+                                           pair_id=coin_data['currency_pair_id'])
+            coin_data['response_buy'] = response_buy
+            if response_buy['errors'] == 'false':
+                fund_buy_usd = CoinAmount * coin_data['min_ask_price_usd']
+                coin_data['fund_buy_usd'] = fund_buy_usd
+                coin_data['ice_order_id'] = response_buy['response']['entity']['order_id']
+                coin_data['ice_transaction_id'] = response_buy['response']['entity']['transaction_id']
+
+                response_sell = bitstamp.send_bets(amount=CoinAmount, price=coin_data['max_bid_price_bitstamp'],
+                                                   coin=coin_data['coin'], side='sell')
+                coin_data['response_sell'] = response_sell
+                if response_sell['status'] == 'success':
+                    fund_sell_usd = CoinAmount * float(coin_data['max_bid_price_bitstamp'])
+                    coin_data['fund_sell_usd'] = fund_sell_usd
+                    coin_data['bitstamp_order_id'] = response_sell['id']
+
+                else:
+                    error_msg = error_msg + 'Unable to place sell order on BITSTAMP. ' + response_sell['reason']
+            else:
+                error_msg = error_msg + 'Unable to place buy order on ICE. ' + response_buy['error']
+        else:
+            error_msg = error_msg + 'Wallet amount is less than $30'
+    else:
+        error_msg = error_msg + 'variance is less than 2. '
+    coin_data['error_msg'] = error_msg
+    return coin_data
+
+
+def summary_into_file(bot_summary):
+    record_fl = open('trade_record.csv', 'a')
+    file_writer = csv.writer(record_fl, delimiter=',', quotechar='|', quoting=csv.QUOTE_ALL)
+    for coin in bot_summary:
+        row = []
+        for heading in FILE_HEADING:
+            row.append(coin.get(heading, '-'))
+        file_writer.writerow(row)
+    record_fl.close()
+
+
 def main():
-    ice = Ice3x(key='IYBV1EGYESOGEHACTSKQ0ERQIMEJ0DQBGEDPCTTSARDLWNRIEFVVFLOO5TDGAXHY',
-                secret='cyv4pnqqxvqhdp6minydzjpsdgcnlxuieckgi8pilkfnuxgsbuk89lbwq6s1alpe', coins=CURRENCIES)
+    bot_summary = []
+    email_summary = []
+    ice = Ice3x(key=Ice_key, secret=Ice_secret, coins=CURRENCIES)
 
-    bitstamp = Bitstamp(key='WtoXTeix4LBUQkJAkeilYowmMUbfVK4r', secret='lPu2EMyoV7gpKsuy1fRnxT1sAkfJVSS',
-                        client_id='gugo5564', coins=CURRENCIES)
-    i = 0
-    while i < 10:
-        res = bitstamp.get_balance('btc')
-        if res['status'] != 'error':
-            break
-        i += 1
-        time.sleep(2)
-    # bitstamp.max_bid_amount('btc')
+    bitstamp = Bitstamp(key=Bitstamp_key, secret=Bitstamp_secret, client_id=Bitstamp_client_id, coins=CURRENCIES)
 
-    # min_ask_price_ice, currency_pair_id = ice.min_ask_price_ice()
-    # max_bid_price_bitstamp, price_bitstamp = bitstamp.max_bid_price_bitstamp()
-    #
-    # print(max_bid_price_bitstamp)
-    # print(price_bitstamp)
-    # htmlcontent = []
-    # heading = ('coin', 'date min_ask_price_ice', 'max_bid_price_bitstamp', 'coin_amount', 'fund_buy_usd',
-    #            'fund_sell_usd', 'variance')
-    # summary = []
-    # record_fl = open('trade_record', 'a')
-    # file_writer = csv.writer(record_fl, delimiter=',', quotechar='|', quoting=csv.QUOTE_ALL)
-    #
-    # exchange_rate = currency_exchange_rate()
-    # print(exchange_rate)
-    # min_ask_price_usd = currency_conversion(exchange_rate, min_ask_price_ice)
-    #
-    # for coin in CURRENCIES:
-    #     summary_coin = []
-    #     variance_coin = variance(min_ask_price_usd[coin], max_bid_price_bitstamp[coin])
-    #     print(variance_coin)
-    #     if variance_coin > -2:
-    #         wallet_Amount = bitstamp.get_balance('BTC')
-    #         print(wallet_Amount)
-    #
-    #         if wallet_Amount * price_bitstamp[coin] > 30:
-    #             MaxBidAmount = bitstamp.max_bid_amount(coin)    ########## amount of coin to buy and sell yet to be calculated
-    #
-    #             if MaxBidAmount > wallet_Amount:
-    #                 CoinAmount = wallet_Amount
-    #             else:
-    #                 CoinAmount = MaxBidAmount
-    #             response_buy = ice.place_order(amount=CoinAmount, price=min_ask_price_ice[coin], type='buy',
-    #                                        pair_id=currency_pair_id[coin])
-    #             print(response_buy)
-    #             if response_buy['status'] == 'success':
-    #                 fund_buy_usd = CoinAmount * min_ask_price_usd[coin]
-    #                 response_sell = bitstamp.send_bets(amount=CoinAmount, price=max_bid_price_bitstamp[coin], coin=coin,
-    #                                                    side='sell')
-    #                 print(response_sell)
-    #                 if response_sell['status'] == 'success':
-    #                     fund_sell_usd = CoinAmount * max_bid_price_bitstamp[coin]
-    #
-    #                     summary_coin = (coin, datetime.datetime.now(), min_ask_price_ice[coin], max_bid_price_bitstamp[coin],
-    #                                     CoinAmount, fund_buy_usd, fund_sell_usd, variance_coin)
-    #                     summary.append(summary_coin)
-    #                     print(summary)
-    #                     file_writer.writerow(summary_coin)
-    #         else:
-    #             message = 'Wallet amount is less than $30'
-    #
-    # htmlcontent.append(createHTMLtable('Audit Report Reviewed Order', heading, summary))
-    # email_sub = 'Audit Report Reviewed Order'
-    # email_body_text = 'Hi All,\n\nPFB the audit summary of reviewed orders:'
-    # email_to = ['rachit.mehra@paytm.com', 'mohit.singh@paytm.com']
-    # email_cc = ['sumit@paytm.com', 'ankit1.bansal@paytm.com', 'hitesh.goyal@paytm.com',
-    #             'nikita.kindra@paytm.com']
-    # # email_to = ['ankit1.bansal@paytm.com']
-    # # email_cc = ['nikita.kindra@paytm.com', 'hitesh.goyal@paytm.com']
-    # email_body = htmlcontent
-    # email_text_end = '\n\nRegards\nKingCobraTeam'
-    # sendEmail(email_sub, email_body_text, email_body, email_text_end, email_to, email_cc)
-    # record_fl.close()
+    min_ask_price_ice, currency_pair_id = ice.min_ask_price_ice()
+    max_bid_price_bitstamp, price_bitstamp = bitstamp.max_bid_price_bitstamp()
+
+    htmlcontent = []
+
+    exchange_rate = currency_exchange_rate()
+    min_ask_price_usd = currency_conversion(exchange_rate, min_ask_price_ice)
+
+    for coin in CURRENCIES:
+        coin_data = {'coin': coin, 'min_ask_price_ice': min_ask_price_ice[coin],
+                     'max_bid_price_bitstamp': max_bid_price_bitstamp[coin],
+                     'currency_pair_id': currency_pair_id[coin], 'price_bitstamp': price_bitstamp[coin],
+                     'min_ask_price_usd': min_ask_price_usd[coin]}
+        coin_summary = strategy(coin, coin_data, bitstamp, ice)
+        bot_summary.append(coin_summary)
+
+        if coin_summary['error_msg'] == '':
+            email_summary.append(coin_summary)
+
+    if len(email_summary) > 0:
+        htmlcontent.append(createHTMLtable('Audit Report Reviewed Order', EMAIL_HEADING, email_summary))
+        email_sub = 'Trading Bot Report'
+        email_body_text = 'Hi All,\n\nPFB the summary of orders:'
+        email_body = htmlcontent
+        email_text_end = '\n\nRegards\nTrading Bot'
+        sendEmail(email_sub, email_body_text, email_body, email_text_end, [])
+    summary_into_file(bot_summary)
 
 
 main()
-
-# sendEmail('test', 'test', [], 'regards', ['30ankitbansal@gmail.com'], [''])
