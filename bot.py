@@ -18,7 +18,7 @@ EMAIL_HEADING = ('coin', 'date', 'min_ask_price_ice', 'max_bid_price_bitstamp', 
                  'fund_sell_usd', 'variance')
 
 FILE_HEADING = ('coin', 'date', 'min_ask_price_ice', 'max_bid_price_bitstamp', 'coin_amount', 'fund_buy_usd',
-                'fund_sell_usd', 'variance', 'currency_pair_id', 'price_bitstamp', 'min_ask_price_usd', 'variance',
+                'fund_sell_usd', 'variance', 'currency_pair_id', 'price_bitstamp', 'min_ask_price_usd',
                 'max_bid_amount', 'coin_amount', 'response_buy', 'fund_buy_usd', 'ice_order_id', 'ice_transaction_id',
                 'response_sell', 'fund_sell_usd', 'bitstamp_order_id')
 
@@ -143,7 +143,7 @@ def strategy(coin, coin_data, bitstamp, ice):
 
 def summary_into_file(bot_summary):
     record_fl = open('trade_record.csv', 'a')
-    file_writer = csv.writer(record_fl, delimiter=',', quotechar='|', quoting=csv.QUOTE_ALL)
+    file_writer = csv.writer(record_fl, delimiter=',', quotechar='', quoting=csv.QUOTE_ALL)
     for coin in bot_summary:
         row = []
         for heading in FILE_HEADING:
