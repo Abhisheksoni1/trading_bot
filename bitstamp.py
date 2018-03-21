@@ -49,7 +49,7 @@ class Bitstamp(object):
                     found = True
                     response_log = response_log + response
                 except Exception as e:
-                    pass
+                    self.logger.info(e)
         self.logger.info(self._format_log(response_log, "INFO"))
         return max_bid_price_bitstamp, price_bitstamp
 
